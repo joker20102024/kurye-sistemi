@@ -13,6 +13,9 @@ export default function CourierRegisterPage() {
   const [telefon, setTelefon] = useState("");
   const [plaka, setPlaka] = useState("");
 
+  const inputClass =
+    "w-80 max-w-full p-3 rounded bg-white text-black placeholder:text-gray-500 outline-none border border-zinc-300";
+
   const kayitOl = async () => {
     if (!ad || !telefon || !plaka) {
       alert("Lütfen tüm alanları doldur.");
@@ -57,7 +60,7 @@ export default function CourierRegisterPage() {
         placeholder="Ad Soyad"
         value={ad}
         onChange={(e) => setAd(e.target.value)}
-        className="w-80 p-3 rounded bg-white text-black"
+        className={inputClass}
       />
 
       <input
@@ -65,7 +68,7 @@ export default function CourierRegisterPage() {
         placeholder="Telefon"
         value={telefon}
         onChange={(e) => setTelefon(e.target.value)}
-        className="w-80 p-3 rounded bg-white text-black"
+        className={inputClass}
       />
 
       <input
@@ -73,7 +76,7 @@ export default function CourierRegisterPage() {
         placeholder="Araç Plakası"
         value={plaka}
         onChange={(e) => setPlaka(e.target.value)}
-        className="w-80 p-3 rounded bg-white text-black"
+        className={inputClass}
       />
 
       <button
