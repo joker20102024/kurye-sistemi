@@ -10,8 +10,10 @@ import {
   getRedirectResult,
   setPersistence,
   browserLocalPersistence,
+  onAuthStateChanged,
+  User,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export default function CourierRegisterPage() {
   const router = useRouter();
@@ -24,57 +26,77 @@ export default function CourierRegisterPage() {
   const inputClass =
     "w-80 max-w-full p-3 rounded bg-white text-black placeholder:text-gray-500 outline-none border border-zinc-300";
 
+  const kaydiFirebaseYaz = async (user: User) => {
+    const kayitBilgisi = localStorage.getItem("kuryeKayitBilgisi");
+
+    if (!kayitBilgisi) return;
+
+    const bilgiler = JSON.parse(kayitBilgisi);
+
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (userSnap.exists()) {
+      localStorage.removeItem("kuryeKayitBilgisi");
+      alert("Bu hesap zaten kayıtlı. Giriş yapın.");
+      router.replace("/courier-login");
+      return;
+    }
+
+    await setDoc(userRef, {
+      uid: user.uid,
+      email: user.email,
+      name: bilgiler.ad,
+      role: "courier",
+      status: "pending",
+      telefon: bilgiler.telefon,
+      plaka: bilgiler.plaka,
+      createdAt: serverTimestamp(),
+    });
+
+    localStorage.removeItem("kuryeKayitBilgisi");
+
+    alert("Kurye kaydınız alındı. Admin onayı bekleniyor.");
+    router.replace("/courier-login");
+  };
+
   useEffect(() => {
+    const auth = getAuth(app);
+
     const kontrolEt = async () => {
       try {
-        const auth = getAuth(app);
         await setPersistence(auth, browserLocalPersistence);
 
         const result = await getRedirectResult(auth);
 
-        if (!result?.user) return;
-
-        const kayitBilgisi = localStorage.getItem("kuryeKayitBilgisi");
-
-        if (!kayitBilgisi) {
-          alert("Kayıt bilgileri bulunamadı. Lütfen tekrar deneyin.");
+        if (result?.user) {
+          await kaydiFirebaseYaz(result.user);
           return;
         }
 
-        const bilgiler = JSON.parse(kayitBilgisi);
-
-        const user = result.user;
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
-
-        if (userSnap.exists()) {
-          localStorage.removeItem("kuryeKayitBilgisi");
-          alert("Bu hesap zaten kayıtlı. Giriş yapın.");
-          router.replace("/courier-login");
-          return;
+        if (auth.currentUser) {
+          await kaydiFirebaseYaz(auth.currentUser);
         }
-
-        await setDoc(userRef, {
-          uid: user.uid,
-          email: user.email,
-          name: bilgiler.ad,
-          role: "courier",
-          status: "pending",
-          telefon: bilgiler.telefon,
-          plaka: bilgiler.plaka,
-        });
-
-        localStorage.removeItem("kuryeKayitBilgisi");
-
-        alert("Kurye kaydınız alındı. Admin onayı bekleniyor.");
-        router.replace("/courier-login");
       } catch (error) {
         console.error(error);
-        alert("Kayıt dönüşünde hata oluştu.");
+        alert("Kayıt dönüşünde hata oluştu. Console'u kontrol et.");
       }
     };
 
     kontrolEt();
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      try {
+        if (currentUser && localStorage.getItem("kuryeKayitBilgisi")) {
+          await kaydiFirebaseYaz(currentUser);
+        }
+      } catch (error) {
+        console.error(error);
+        alert("Kurye kaydı Firebase'e yazılamadı.");
+      }
+    });
+
+    return () => unsubscribe();
   }, [router]);
 
   const kayitOl = async () => {
