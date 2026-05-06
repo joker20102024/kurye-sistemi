@@ -13,7 +13,12 @@ import {
   addDoc,
   doc,
   getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
@@ -25,6 +30,13 @@ type RestaurantData = {
   status?: string;
 };
 
+type SonPaket = {
+  musteri?: string;
+  adres?: string;
+  durum?: string;
+  restoranAdi?: string;
+};
+
 export default function RestaurantPage() {
   const router = useRouter();
 
@@ -32,6 +44,7 @@ export default function RestaurantPage() {
   const [adres, setAdres] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantData | null>(null);
+  const [sonPaket, setSonPaket] = useState<SonPaket | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -75,6 +88,20 @@ export default function RestaurantPage() {
 
         setUser(currentUser);
         setRestaurant(data);
+
+        const sonPaketQuery = query(
+          collection(db, "siparisler"),
+          where("restoranId", "==", currentUser.uid),
+          orderBy("createdAt", "desc"),
+          limit(1)
+        );
+
+        const sonPaketSnap = await getDocs(sonPaketQuery);
+
+        if (!sonPaketSnap.empty) {
+          setSonPaket(sonPaketSnap.docs[0].data() as SonPaket);
+        }
+
         setLoading(false);
       } catch (error) {
         console.error(error);
@@ -97,7 +124,7 @@ export default function RestaurantPage() {
       return;
     }
 
-    await addDoc(collection(db, "siparisler"), {
+    const yeniSiparis = {
       musteri: musteri.trim(),
       adres: adres.trim(),
       kurye: "",
@@ -106,6 +133,15 @@ export default function RestaurantPage() {
       restoranAdi: restaurant.restoranAdi || "Bilinmeyen restoran",
       restoranId: user.uid,
       createdAt: serverTimestamp(),
+    };
+
+    await addDoc(collection(db, "siparisler"), yeniSiparis);
+
+    setSonPaket({
+      musteri: yeniSiparis.musteri,
+      adres: yeniSiparis.adres,
+      durum: yeniSiparis.durum,
+      restoranAdi: yeniSiparis.restoranAdi,
     });
 
     alert("Sipariş kaydedildi!");
@@ -130,7 +166,7 @@ export default function RestaurantPage() {
 
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4 p-6">
-      <div className="w-full max-w-sm flex justify-between items-center mb-4">
+      <div className="w-full max-w-sm flex justify-between items-center mb-2">
         <div>
           <h1 className="text-3xl">🍔 Restoran Paneli</h1>
           <p className="text-zinc-400 mt-1">
@@ -145,6 +181,29 @@ export default function RestaurantPage() {
           Çıkış
         </button>
       </div>
+
+      {sonPaket && (
+        <div className="w-80 max-w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-sm mb-2">
+          <p className="text-yellow-400 font-semibold mb-2">
+            📦 Son Yüklenen Paket
+          </p>
+
+          <p>
+            <span className="text-zinc-400">Müşteri:</span>{" "}
+            {sonPaket.musteri}
+          </p>
+
+          <p>
+            <span className="text-zinc-400">Adres:</span>{" "}
+            {sonPaket.adres}
+          </p>
+
+          <p>
+            <span className="text-zinc-400">Durum:</span>{" "}
+            {sonPaket.durum}
+          </p>
+        </div>
+      )}
 
       <input
         type="text"
