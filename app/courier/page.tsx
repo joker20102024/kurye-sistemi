@@ -9,7 +9,7 @@ import {
   updateDoc,
   getDoc,
 } from "firebase/firestore";
-import { getAuth, signOut } from "firebase/auth";
+import { getAuth, signOut, onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 
 type Order = {
@@ -25,6 +25,7 @@ type Order = {
 export default function CourierPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [currentCourierId, setCurrentCourierId] = useState<string | null>(null);
 
   const router = useRouter();
 
@@ -36,12 +37,9 @@ export default function CourierPage() {
 
     try {
       await audio.play();
-
       audio.pause();
       audio.currentTime = 0;
-
       setSoundEnabled(true);
-
       alert("Bildirim sesi aktif edildi 🔊");
     } catch (error) {
       alert("Ses açılamadı.");
@@ -49,58 +47,63 @@ export default function CourierPage() {
   };
 
   useEffect(() => {
-    if (
-      "Notification" in window &&
-      Notification.permission === "default"
-    ) {
+    const auth = getAuth(app);
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.push("/courier-login");
+        return;
+      }
+
+      setCurrentCourierId(user.uid);
+    });
+
+    return () => unsubAuth();
+  }, [router]);
+
+  useEffect(() => {
+    if (!currentCourierId) return;
+
+    if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
 
-    const unsubscribe = onSnapshot(
-      collection(db, "siparisler"),
-      (snapshot) => {
-        const allOrders = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Order[];
+    const unsubscribe = onSnapshot(collection(db, "siparisler"), (snapshot) => {
+      const allOrders = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Order[];
 
-        const aktifOrders = allOrders.filter(
-          (o) =>
-            o.durum !== "Teslim Edildi" &&
-            o.durum !== "İptal"
-        );
+      const aktifOrders = allOrders.filter((o) => {
+        const aktif = o.durum !== "Teslim Edildi" && o.durum !== "İptal";
 
-        if (
-          !firstLoad.current &&
-          aktifOrders.length > lastCount.current
-        ) {
-          if (
-            "Notification" in window &&
-            Notification.permission === "granted"
-          ) {
-            new Notification("Yeni sipariş var 🚀", {
-              body: "Kurye paneline yeni sipariş düştü.",
-            });
-          }
+        const bosSiparis = !o.kuryeId;
+        const kendiSiparisi = o.kuryeId === currentCourierId;
 
-          if (soundEnabled) {
-            const audio = new Audio(
-              "/notification.mp3"
-            );
+        return aktif && (bosSiparis || kendiSiparisi);
+      });
 
-            audio.play().catch(() => {});
-          }
+      if (!firstLoad.current && aktifOrders.length > lastCount.current) {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("Yeni sipariş var 🚀", {
+            body: "Kurye paneline yeni sipariş düştü.",
+          });
         }
 
-        firstLoad.current = false;
-        lastCount.current = aktifOrders.length;
-
-        setOrders(aktifOrders);
+        if (soundEnabled) {
+          const audio = new Audio("/notification.mp3");
+          audio.play().catch(() => {});
+        }
       }
-    );
+
+      firstLoad.current = false;
+      lastCount.current = aktifOrders.length;
+
+      setOrders(aktifOrders);
+    });
 
     return () => unsubscribe();
-  }, [soundEnabled]);
+  }, [currentCourierId, soundEnabled]);
 
   const siparisiAl = async (id: string) => {
     const auth = getAuth(app);
@@ -112,9 +115,22 @@ export default function CourierPage() {
       return;
     }
 
-    const userSnap = await getDoc(
-      doc(db, "users", user.uid)
-    );
+    const orderRef = doc(db, "siparisler", id);
+    const orderSnap = await getDoc(orderRef);
+
+    if (!orderSnap.exists()) {
+      alert("Sipariş bulunamadı.");
+      return;
+    }
+
+    const orderData = orderSnap.data() as Order;
+
+    if (orderData.kuryeId && orderData.kuryeId !== user.uid) {
+      alert("Bu sipariş başka bir kurye tarafından alınmış.");
+      return;
+    }
+
+    const userSnap = await getDoc(doc(db, "users", user.uid));
 
     if (!userSnap.exists()) {
       alert("Kurye kaydı bulunamadı.");
@@ -124,12 +140,9 @@ export default function CourierPage() {
     const userData = userSnap.data();
 
     const kuryeAdi =
-      userData.name ||
-      user.displayName ||
-      user.email ||
-      "Kurye";
+      userData.name || user.displayName || user.email || "Kurye";
 
-    await updateDoc(doc(db, "siparisler", id), {
+    await updateDoc(orderRef, {
       kurye: kuryeAdi,
       kuryeId: user.uid,
       durum: "Yolda",
@@ -137,16 +150,38 @@ export default function CourierPage() {
   };
 
   const teslimEt = async (id: string) => {
-    await updateDoc(doc(db, "siparisler", id), {
+    const auth = getAuth(app);
+    const user = auth.currentUser;
+
+    if (!user) {
+      alert("Giriş yapman gerekiyor.");
+      router.push("/courier-login");
+      return;
+    }
+
+    const orderRef = doc(db, "siparisler", id);
+    const orderSnap = await getDoc(orderRef);
+
+    if (!orderSnap.exists()) {
+      alert("Sipariş bulunamadı.");
+      return;
+    }
+
+    const orderData = orderSnap.data() as Order;
+
+    if (orderData.kuryeId !== user.uid) {
+      alert("Bu sipariş sana ait değil. Teslim edemezsin.");
+      return;
+    }
+
+    await updateDoc(orderRef, {
       durum: "Teslim Edildi",
     });
   };
 
   const cikisYap = async () => {
     const auth = getAuth(app);
-
     await signOut(auth);
-
     router.push("/courier-login");
   };
 
@@ -155,13 +190,8 @@ export default function CourierPage() {
       <div className="sticky top-0 z-10 bg-black pb-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold">
-              🛵 Kurye
-            </h1>
-
-            <p className="text-sm text-zinc-400">
-              Mobil teslimat paneli
-            </p>
+            <h1 className="text-2xl font-bold">🛵 Kurye</h1>
+            <p className="text-sm text-zinc-400">Mobil teslimat paneli</p>
           </div>
 
           <button
@@ -173,13 +203,8 @@ export default function CourierPage() {
         </div>
 
         <div className="mt-4 rounded-xl bg-zinc-900 border border-zinc-800 p-3">
-          <p className="text-sm text-zinc-400">
-            Aktif sipariş
-          </p>
-
-          <p className="text-3xl font-bold">
-            {orders.length}
-          </p>
+          <p className="text-sm text-zinc-400">Aktif sipariş</p>
+          <p className="text-3xl font-bold">{orders.length}</p>
         </div>
 
         {!soundEnabled && (
@@ -199,86 +224,70 @@ export default function CourierPage() {
       )}
 
       <div className="space-y-4 mt-4 pb-24">
-        {orders.map((order) => (
-          <div
-            key={order.id}
-            className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-lg"
-          >
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <p className="text-xs text-zinc-400">
-                  Restoran
-                </p>
+        {orders.map((order) => {
+          const benimSiparisim = order.kuryeId === currentCourierId;
 
-                <h2 className="text-xl font-bold">
-                  {order.restoranAdi ||
-                    "Bilinmeyen restoran"}
-                </h2>
+          return (
+            <div
+              key={order.id}
+              className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-lg"
+            >
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-xs text-zinc-400">Restoran</p>
+                  <h2 className="text-xl font-bold">
+                    {order.restoranAdi || "Bilinmeyen restoran"}
+                  </h2>
+                </div>
+
+                <span
+                  className={`text-xs px-3 py-1 rounded-full ${
+                    order.durum === "Yolda" ? "bg-blue-600" : "bg-yellow-600"
+                  }`}
+                >
+                  {order.durum}
+                </span>
               </div>
 
-              <span
-                className={`text-xs px-3 py-1 rounded-full ${
-                  order.durum === "Yolda"
-                    ? "bg-blue-600"
-                    : "bg-yellow-600"
-                }`}
-              >
-                {order.durum}
-              </span>
-            </div>
+              <div className="space-y-2 text-sm">
+                <p>
+                  <span className="text-zinc-400">Müşteri: </span>
+                  <b>{order.musteri}</b>
+                </p>
 
-            <div className="space-y-2 text-sm">
-              <p>
-                <span className="text-zinc-400">
-                  Müşteri:
-                </span>{" "}
-                <b>{order.musteri}</b>
-              </p>
+                <p>
+                  <span className="text-zinc-400">Adres: </span>
+                  <b>{order.adres}</b>
+                </p>
 
-              <p>
-                <span className="text-zinc-400">
-                  Adres:
-                </span>{" "}
-                <b>{order.adres}</b>
-              </p>
+                <p>
+                  <span className="text-zinc-400">Kurye: </span>
+                  <b>{order.kurye || "Atanmadı"}</b>
+                </p>
+              </div>
 
-              <p>
-                <span className="text-zinc-400">
-                  Kurye:
-                </span>{" "}
-                <b>
-                  {order.kurye || "Atanmadı"}
-                </b>
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 mt-4">
-              {!order.kurye && (
-                <button
-                  onClick={() =>
-                    siparisiAl(order.id)
-                  }
-                  className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold"
-                >
-                  Siparişi Al
-                </button>
-              )}
-
-              {order.kurye &&
-                order.durum !==
-                  "Teslim Edildi" && (
+              <div className="grid grid-cols-1 gap-2 mt-4">
+                {!order.kuryeId && (
                   <button
-                    onClick={() =>
-                      teslimEt(order.id)
-                    }
+                    onClick={() => siparisiAl(order.id)}
+                    className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold"
+                  >
+                    Siparişi Al
+                  </button>
+                )}
+
+                {benimSiparisim && order.durum !== "Teslim Edildi" && (
+                  <button
+                    onClick={() => teslimEt(order.id)}
                     className="w-full bg-green-600 hover:bg-green-700 py-3 rounded-xl font-bold"
                   >
                     Teslim Ettim
                   </button>
                 )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </main>
   );
