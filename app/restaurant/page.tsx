@@ -2,20 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { app, db } from "../lib/firebase";
-import {
-  getAuth,
-  onAuthStateChanged,
-  signOut,
-  User,
-} from "firebase/auth";
+import { getAuth, onAuthStateChanged, signOut, User } from "firebase/auth";
 import {
   collection,
   addDoc,
   doc,
   getDoc,
   getDocs,
-  limit,
-  orderBy,
   query,
   serverTimestamp,
   where,
@@ -35,6 +28,7 @@ type SonPaket = {
   adres?: string;
   durum?: string;
   restoranAdi?: string;
+  createdAt?: any;
 };
 
 export default function RestaurantPage() {
@@ -91,22 +85,35 @@ export default function RestaurantPage() {
 
         const sonPaketQuery = query(
           collection(db, "siparisler"),
-          where("restoranId", "==", currentUser.uid),
-          orderBy("createdAt", "desc"),
-          limit(1)
+          where("restoranId", "==", currentUser.uid)
         );
 
         const sonPaketSnap = await getDocs(sonPaketQuery);
 
-        if (!sonPaketSnap.empty) {
-          setSonPaket(sonPaketSnap.docs[0].data() as SonPaket);
-        }
+        let sonSiparis: SonPaket | null = null;
 
+        sonPaketSnap.forEach((docSnap) => {
+          const paket = docSnap.data() as SonPaket;
+
+          if (!sonSiparis) {
+            sonSiparis = paket;
+            return;
+          }
+
+          const eskiTarih = sonSiparis.createdAt?.toMillis?.() || 0;
+          const yeniTarih = paket.createdAt?.toMillis?.() || 0;
+
+          if (yeniTarih > eskiTarih) {
+            sonSiparis = paket;
+          }
+        });
+
+        setSonPaket(sonSiparis);
         setLoading(false);
       } catch (error) {
         console.error(error);
+        alert("Restoran paneli açılırken hata oldu. Console'u kontrol et.");
         setLoading(false);
-        router.replace("/restaurant-login");
       }
     });
 
@@ -145,7 +152,6 @@ export default function RestaurantPage() {
     });
 
     alert("Sipariş kaydedildi!");
-
     setMusteri("");
     setAdres("");
   };
@@ -189,18 +195,15 @@ export default function RestaurantPage() {
           </p>
 
           <p>
-            <span className="text-zinc-400">Müşteri:</span>{" "}
-            {sonPaket.musteri}
+            <span className="text-zinc-400">Müşteri:</span> {sonPaket.musteri}
           </p>
 
           <p>
-            <span className="text-zinc-400">Adres:</span>{" "}
-            {sonPaket.adres}
+            <span className="text-zinc-400">Adres:</span> {sonPaket.adres}
           </p>
 
           <p>
-            <span className="text-zinc-400">Durum:</span>{" "}
-            {sonPaket.durum}
+            <span className="text-zinc-400">Durum:</span> {sonPaket.durum}
           </p>
         </div>
       )}
