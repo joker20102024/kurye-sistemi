@@ -2,44 +2,82 @@
 
 import { useRouter } from "next/navigation";
 import { app, db } from "../lib/firebase";
-import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  setPersistence,
+  browserLocalPersistence,
+} from "firebase/auth";
+
 import { doc, getDoc } from "firebase/firestore";
 
 export default function RestaurantLoginPage() {
   const router = useRouter();
 
   const googleGiris = async () => {
-    const auth = getAuth(app);
-    const provider = new GoogleAuthProvider();
+    try {
+      const auth = getAuth(app);
 
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
+      await setPersistence(
+        auth,
+        browserLocalPersistence
+      );
 
-    const userSnap = await getDoc(doc(db, "users", user.uid));
+      const provider =
+        new GoogleAuthProvider();
 
-    if (!userSnap.exists()) {
-      alert("Kayıt bulunamadı. Önce restoran kaydı yapın.");
-      return;
+      const result =
+        await signInWithPopup(
+          auth,
+          provider
+        );
+
+      const user = result.user;
+
+      const userSnap = await getDoc(
+        doc(db, "users", user.uid)
+      );
+
+      if (!userSnap.exists()) {
+        alert(
+          "Kayıt bulunamadı. Önce restoran kaydı yapın."
+        );
+        return;
+      }
+
+      const data = userSnap.data();
+
+      if (data.role !== "restaurant") {
+        alert(
+          "Bu hesap restoran hesabı değil."
+        );
+        return;
+      }
+
+      if (data.status !== "approved") {
+        alert(
+          "Hesabınız admin onayı bekliyor."
+        );
+        return;
+      }
+
+      router.push("/restaurant");
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        "Giriş sırasında hata oluştu."
+      );
     }
-
-    const data = userSnap.data();
-
-    if (data.role !== "restaurant") {
-      alert("Bu hesap restoran hesabı değil.");
-      return;
-    }
-
-    if (data.status !== "approved") {
-      alert("Hesabınız admin onayı bekliyor.");
-      return;
-    }
-
-    router.push("/restaurant");
   };
 
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4">
-      <h1 className="text-3xl mb-4">🍔 Restoran Girişi</h1>
+      <h1 className="text-3xl mb-4">
+        🍔 Restoran Girişi
+      </h1>
 
       <button
         onClick={googleGiris}

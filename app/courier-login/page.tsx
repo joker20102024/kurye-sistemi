@@ -2,7 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { app, db } from "../lib/firebase";
-import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  setPersistence,
+  browserLocalPersistence,
+} from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 
 export default function CourierLoginPage() {
@@ -11,6 +17,9 @@ export default function CourierLoginPage() {
   const googleGiris = async () => {
     try {
       const auth = getAuth(app);
+
+      await setPersistence(auth, browserLocalPersistence);
+
       const provider = new GoogleAuthProvider();
 
       const result = await signInWithPopup(auth, provider);
@@ -28,11 +37,6 @@ export default function CourierLoginPage() {
 
       const role = String(data.role || "").trim().toLowerCase();
       const status = String(data.status || "").trim().toLowerCase();
-
-      console.log("Giriş yapan:", user.email);
-      console.log("Firestore verisi:", data);
-      console.log("role:", role);
-      console.log("status:", status);
 
       if (role !== "courier") {
         alert("Bu hesap kurye hesabı değil. Rol: " + role);
