@@ -8,6 +8,8 @@ import {
   doc,
   updateDoc,
   getDoc,
+  query,
+  orderBy,
 } from "firebase/firestore";
 import { getAuth, signOut, onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
@@ -20,6 +22,7 @@ type Order = {
   kurye?: string;
   kuryeId?: string;
   restoranAdi?: string;
+  createdAt?: any;
 };
 
 export default function CourierPage() {
@@ -31,7 +34,7 @@ export default function CourierPage() {
   const router = useRouter();
 
   const firstLoad = useRef(true);
-  const lastCount = useRef(0);
+  const lastIds = useRef<string[]>([]);
 
   const enableSound = async () => {
     const audio = new Audio("/notification.mp3");
@@ -53,7 +56,8 @@ export default function CourierPage() {
 
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        router.push("/courier-login");
+        setLoading(false);
+        router.replace("/courier-login");
         return;
       }
 
@@ -71,38 +75,53 @@ export default function CourierPage() {
       Notification.requestPermission();
     }
 
-    const unsubscribe = onSnapshot(collection(db, "siparisler"), (snapshot) => {
-      const allOrders = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Order[];
+    const q = query(
+      collection(db, "siparisler"),
+      orderBy("createdAt", "desc")
+    );
 
-      const aktifOrders = allOrders.filter((o) => {
-        const aktif = o.durum !== "Teslim Edildi" && o.durum !== "İptal";
-        const bosSiparis = !o.kuryeId;
-        const kendiSiparisi = o.kuryeId === currentCourierId;
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const allOrders = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        })) as Order[];
 
-        return aktif && (bosSiparis || kendiSiparisi);
-      });
+        const aktifOrders = allOrders.filter((o) => {
+          const aktif = o.durum !== "Teslim Edildi" && o.durum !== "İptal";
+          const bosSiparis = !o.kuryeId;
+          const kendiSiparisi = o.kuryeId === currentCourierId;
 
-      if (!firstLoad.current && aktifOrders.length > lastCount.current) {
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("Yeni sipariş var 🚀", {
-            body: "Kurye paneline yeni sipariş düştü.",
-          });
+          return aktif && (bosSiparis || kendiSiparisi);
+        });
+
+        const yeniIds = aktifOrders.map((o) => o.id);
+        const yeniSiparisVar = yeniIds.some((id) => !lastIds.current.includes(id));
+
+        if (!firstLoad.current && yeniSiparisVar) {
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("Yeni sipariş var 🚀", {
+              body: "Kurye paneline yeni sipariş düştü.",
+            });
+          }
+
+          if (soundEnabled) {
+            const audio = new Audio("/notification.mp3");
+            audio.play().catch(() => {});
+          }
         }
 
-        if (soundEnabled) {
-          const audio = new Audio("/notification.mp3");
-          audio.play().catch(() => {});
-        }
+        firstLoad.current = false;
+        lastIds.current = yeniIds;
+
+        setOrders(aktifOrders);
+      },
+      (error) => {
+        console.error(error);
+        alert("Siparişler canlı dinlenirken hata oluştu.");
       }
-
-      firstLoad.current = false;
-      lastCount.current = aktifOrders.length;
-
-      setOrders(aktifOrders);
-    });
+    );
 
     return () => unsubscribe();
   }, [currentCourierId, soundEnabled]);
@@ -113,7 +132,7 @@ export default function CourierPage() {
 
     if (!user) {
       alert("Giriş yapman gerekiyor.");
-      router.push("/courier-login");
+      router.replace("/courier-login");
       return;
     }
 
@@ -155,7 +174,7 @@ export default function CourierPage() {
 
     if (!user) {
       alert("Giriş yapman gerekiyor.");
-      router.push("/courier-login");
+      router.replace("/courier-login");
       return;
     }
 
@@ -182,7 +201,7 @@ export default function CourierPage() {
   const cikisYap = async () => {
     const auth = getAuth(app);
     await signOut(auth);
-    router.push("/courier-login");
+    router.replace("/courier-login");
   };
 
   if (loading) {
@@ -238,61 +257,45 @@ export default function CourierPage() {
           return (
             <div
               key={order.id}
-              className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-lg"
+              className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
             >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div>
-                  <p className="text-xs text-zinc-400">Restoran</p>
-                  <h2 className="text-xl font-bold">
-                    {order.restoranAdi || "Bilinmeyen restoran"}
-                  </h2>
-                </div>
+              <p className="text-sm text-zinc-400">Restoran</p>
+              <h2 className="text-xl font-bold mb-2">
+                {order.restoranAdi || "Bilinmeyen restoran"}
+              </h2>
 
-                <span
-                  className={`text-xs px-3 py-1 rounded-full ${
-                    order.durum === "Yolda" ? "bg-blue-600" : "bg-yellow-600"
-                  }`}
+              <p>
+                <span className="text-zinc-400">Müşteri:</span>{" "}
+                {order.musteri}
+              </p>
+
+              <p>
+                <span className="text-zinc-400">Adres:</span>{" "}
+                {order.adres}
+              </p>
+
+              <p>
+                <span className="text-zinc-400">Durum:</span>{" "}
+                {order.durum}
+              </p>
+
+              {!order.kuryeId && (
+                <button
+                  onClick={() => siparisiAl(order.id)}
+                  className="w-full mt-4 bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold"
                 >
-                  {order.durum}
-                </span>
-              </div>
+                  Siparişi Al
+                </button>
+              )}
 
-              <div className="space-y-2 text-sm">
-                <p>
-                  <span className="text-zinc-400">Müşteri: </span>
-                  <b>{order.musteri}</b>
-                </p>
-
-                <p>
-                  <span className="text-zinc-400">Adres: </span>
-                  <b>{order.adres}</b>
-                </p>
-
-                <p>
-                  <span className="text-zinc-400">Kurye: </span>
-                  <b>{order.kurye || "Atanmadı"}</b>
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 mt-4">
-                {!order.kuryeId && (
-                  <button
-                    onClick={() => siparisiAl(order.id)}
-                    className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold"
-                  >
-                    Siparişi Al
-                  </button>
-                )}
-
-                {benimSiparisim && order.durum !== "Teslim Edildi" && (
-                  <button
-                    onClick={() => teslimEt(order.id)}
-                    className="w-full bg-green-600 hover:bg-green-700 py-3 rounded-xl font-bold"
-                  >
-                    Teslim Ettim
-                  </button>
-                )}
-              </div>
+              {benimSiparisim && order.durum !== "Teslim Edildi" && (
+                <button
+                  onClick={() => teslimEt(order.id)}
+                  className="w-full mt-4 bg-green-600 hover:bg-green-700 py-3 rounded-xl font-bold"
+                >
+                  Teslim Ettim
+                </button>
+              )}
             </div>
           );
         })}
