@@ -31,6 +31,16 @@ export default function CourierPage() {
   const firstLoad = useRef(true);
   const lastCount = useRef(0);
 
+  useEffect(() => {
+    const savedSound = localStorage.getItem(
+      "courierSoundEnabled"
+    );
+
+    if (savedSound === "true") {
+      setSoundEnabled(true);
+    }
+  }, []);
+
   const enableSound = async () => {
     const audio = new Audio("/notification.mp3");
 
@@ -41,6 +51,11 @@ export default function CourierPage() {
       audio.currentTime = 0;
 
       setSoundEnabled(true);
+
+      localStorage.setItem(
+        "courierSoundEnabled",
+        "true"
+      );
 
       alert("Bildirim sesi aktif edildi 🔊");
     } catch (error) {
