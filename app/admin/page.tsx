@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "../lib/firebase";
+import { db, app } from "../lib/firebase";
 import {
   collection,
   onSnapshot,
@@ -9,6 +9,8 @@ import {
   updateDoc,
   deleteDoc,
 } from "firebase/firestore";
+import { getAuth, signOut, onAuthStateChanged } from "firebase/auth";
+import { useRouter } from "next/navigation";
 
 type Order = {
   id: string;
@@ -45,7 +47,12 @@ type Tab =
 
 type DateFilter = "custom" | "all";
 
+const ADMIN_EMAIL = "inisiye666@gmail.com";
+
 export default function AdminPage() {
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [tab, setTab] = useState<Tab>("pending");
@@ -55,6 +62,29 @@ export default function AdminPage() {
   const [selectedCouriers, setSelectedCouriers] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    const auth = getAuth(app);
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.push("/admin-login");
+        return;
+      }
+
+      if (user.email !== ADMIN_EMAIL) {
+        alert("Bu hesap admin değil.");
+        router.push("/");
+        return;
+      }
+
+      setLoading(false);
+    });
+
+    return () => unsubAuth();
+  }, [router]);
+
+  useEffect(() => {
+    if (loading) return;
+
     const unsubOrders = onSnapshot(collection(db, "siparisler"), (snapshot) => {
       setOrders(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Order[]);
     });
@@ -67,7 +97,7 @@ export default function AdminPage() {
       unsubOrders();
       unsubUsers();
     };
-  }, []);
+  }, [loading]);
 
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
@@ -77,11 +107,7 @@ export default function AdminPage() {
 
   const getOrderDate = (order: Order) => {
     if (!order.createdAt) return null;
-
-    if (order.createdAt?.toDate) {
-      return order.createdAt.toDate();
-    }
-
+    if (order.createdAt?.toDate) return order.createdAt.toDate();
     return new Date(order.createdAt);
   };
 
@@ -90,7 +116,6 @@ export default function AdminPage() {
 
     const orderDate = getOrderDate(order);
     if (!orderDate || isNaN(orderDate.getTime())) return false;
-
     if (!startDate || !endDate) return true;
 
     const start = new Date(startDate);
@@ -114,10 +139,7 @@ export default function AdminPage() {
     (o) => o.durum !== "Teslim Edildi" && o.durum !== "İptal"
   );
 
-  const tamamlananSiparisler = orders.filter(
-    (o) => o.durum === "Teslim Edildi"
-  );
-
+  const tamamlananSiparisler = orders.filter((o) => o.durum === "Teslim Edildi");
   const iptalSiparisler = orders.filter((o) => o.durum === "İptal");
 
   const restoranIstatistikleri = users
@@ -126,30 +148,20 @@ export default function AdminPage() {
       const restoranAdi =
         restaurant.restoranAdi || restaurant.email || "Bilinmeyen restoran";
 
-      const siparisAdedi = filteredOrders.filter(
+      const restoranSiparisleri = filteredOrders.filter(
         (order) => order.restoranAdi === restoranAdi
-      ).length;
-
-      const teslimEdilen = filteredOrders.filter(
-        (order) =>
-          order.restoranAdi === restoranAdi &&
-          order.durum === "Teslim Edildi"
-      ).length;
-
-      const iptalEdilen = filteredOrders.filter(
-        (order) =>
-          order.restoranAdi === restoranAdi &&
-          order.durum === "İptal"
-      ).length;
+      );
 
       return {
         id: restaurant.id,
         restoranAdi,
         restoranAdres: restaurant.restoranAdres,
         restoranTelefon: restaurant.restoranTelefon,
-        siparisAdedi,
-        teslimEdilen,
-        iptalEdilen,
+        siparisAdedi: restoranSiparisleri.length,
+        teslimEdilen: restoranSiparisleri.filter(
+          (o) => o.durum === "Teslim Edildi"
+        ).length,
+        iptalEdilen: restoranSiparisleri.filter((o) => o.durum === "İptal").length,
       };
     });
 
@@ -160,33 +172,22 @@ export default function AdminPage() {
   const kuryeIstatistikleri = approvedCouriers.map((courier) => {
     const kuryeAdi = courier.name || courier.email;
 
-    const teslimatAdedi = filteredOrders.filter(
-      (order) =>
-        order.durum === "Teslim Edildi" &&
-        (order.kuryeId === courier.id || order.kurye === kuryeAdi)
-    ).length;
-
-    const aktifTeslimatAdedi = filteredOrders.filter(
-      (order) =>
-        order.durum !== "Teslim Edildi" &&
-        order.durum !== "İptal" &&
-        (order.kuryeId === courier.id || order.kurye === kuryeAdi)
-    ).length;
-
-    const iptalAdedi = filteredOrders.filter(
-      (order) =>
-        order.durum === "İptal" &&
-        (order.kuryeId === courier.id || order.kurye === kuryeAdi)
-    ).length;
+    const kuryeSiparisleri = filteredOrders.filter(
+      (order) => order.kuryeId === courier.id || order.kurye === kuryeAdi
+    );
 
     return {
       id: courier.id,
       kuryeAdi,
       telefon: courier.telefon,
       plaka: courier.plaka,
-      teslimatAdedi,
-      aktifTeslimatAdedi,
-      iptalAdedi,
+      teslimatAdedi: kuryeSiparisleri.filter(
+        (o) => o.durum === "Teslim Edildi"
+      ).length,
+      aktifTeslimatAdedi: kuryeSiparisleri.filter(
+        (o) => o.durum !== "Teslim Edildi" && o.durum !== "İptal"
+      ).length,
+      iptalAdedi: kuryeSiparisleri.filter((o) => o.durum === "İptal").length,
     };
   });
 
@@ -230,6 +231,12 @@ export default function AdminPage() {
       kuryeId: courier.id,
       durum: "Yolda",
     });
+  };
+
+  const cikisYap = async () => {
+    const auth = getAuth(app);
+    await signOut(auth);
+    router.push("/admin-login");
   };
 
   const TabButton = ({ value, label }: { value: Tab; label: string }) => (
@@ -294,9 +301,26 @@ export default function AdminPage() {
     </div>
   );
 
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-black text-white flex items-center justify-center">
+        <p className="text-xl">Yükleniyor...</p>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-black text-white p-8">
-      <h1 className="text-3xl mb-6">👑 Admin Paneli</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl">👑 Admin Paneli</h1>
+
+        <button
+          onClick={cikisYap}
+          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded"
+        >
+          Çıkış
+        </button>
+      </div>
 
       <div className="flex flex-wrap gap-3 mb-8">
         <TabButton value="pending" label={`Onay Bekleyenler (${pendingUsers.length})`} />
@@ -354,7 +378,9 @@ export default function AdminPage() {
       {tab === "pending" && (
         <section>
           <h2 className="text-2xl mb-4">👥 Onay Bekleyen İşlemler</h2>
-          {pendingUsers.length === 0 && <p className="text-zinc-400">Onay bekleyen kullanıcı yok.</p>}
+          {pendingUsers.length === 0 && (
+            <p className="text-zinc-400">Onay bekleyen kullanıcı yok.</p>
+          )}
           <div className="space-y-4">{pendingUsers.map((u) => userCard(u, false))}</div>
         </section>
       )}
@@ -362,7 +388,9 @@ export default function AdminPage() {
       {tab === "approved" && (
         <section>
           <h2 className="text-2xl mb-4">✅ Onaylananlar</h2>
-          {approvedUsers.length === 0 && <p className="text-zinc-400">Onaylanan kullanıcı yok.</p>}
+          {approvedUsers.length === 0 && (
+            <p className="text-zinc-400">Onaylanan kullanıcı yok.</p>
+          )}
           <div className="space-y-4">{approvedUsers.map((u) => userCard(u, true))}</div>
         </section>
       )}
@@ -370,7 +398,9 @@ export default function AdminPage() {
       {tab === "orders" && (
         <section>
           <h2 className="text-2xl mb-4">📦 Aktif Siparişler</h2>
-          {aktifSiparisler.length === 0 && <p className="text-zinc-400">Aktif sipariş yok.</p>}
+          {aktifSiparisler.length === 0 && (
+            <p className="text-zinc-400">Aktif sipariş yok.</p>
+          )}
 
           <div className="space-y-4">
             {aktifSiparisler.map((order) => (
@@ -446,7 +476,9 @@ export default function AdminPage() {
       {tab === "completed" && (
         <section>
           <h2 className="text-2xl mb-4">✅ Teslim Edilen Siparişler</h2>
-          {tamamlananSiparisler.length === 0 && <p className="text-zinc-400">Teslim edilen sipariş yok.</p>}
+          {tamamlananSiparisler.length === 0 && (
+            <p className="text-zinc-400">Teslim edilen sipariş yok.</p>
+          )}
 
           <div className="space-y-4">
             {tamamlananSiparisler.map((order) => (
@@ -466,7 +498,9 @@ export default function AdminPage() {
       {tab === "cancelled" && (
         <section>
           <h2 className="text-2xl mb-4">❌ İptal Olan Siparişler</h2>
-          {iptalSiparisler.length === 0 && <p className="text-zinc-400">İptal olan sipariş yok.</p>}
+          {iptalSiparisler.length === 0 && (
+            <p className="text-zinc-400">İptal olan sipariş yok.</p>
+          )}
 
           <div className="space-y-4">
             {iptalSiparisler.map((order) => (

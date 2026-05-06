@@ -26,6 +26,7 @@ export default function CourierPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [currentCourierId, setCurrentCourierId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const router = useRouter();
 
@@ -39,6 +40,7 @@ export default function CourierPage() {
       await audio.play();
       audio.pause();
       audio.currentTime = 0;
+
       setSoundEnabled(true);
       alert("Bildirim sesi aktif edildi 🔊");
     } catch (error) {
@@ -56,6 +58,7 @@ export default function CourierPage() {
       }
 
       setCurrentCourierId(user.uid);
+      setLoading(false);
     });
 
     return () => unsubAuth();
@@ -76,7 +79,6 @@ export default function CourierPage() {
 
       const aktifOrders = allOrders.filter((o) => {
         const aktif = o.durum !== "Teslim Edildi" && o.durum !== "İptal";
-
         const bosSiparis = !o.kuryeId;
         const kendiSiparisi = o.kuryeId === currentCourierId;
 
@@ -138,9 +140,7 @@ export default function CourierPage() {
     }
 
     const userData = userSnap.data();
-
-    const kuryeAdi =
-      userData.name || user.displayName || user.email || "Kurye";
+    const kuryeAdi = userData.name || user.displayName || user.email || "Kurye";
 
     await updateDoc(orderRef, {
       kurye: kuryeAdi,
@@ -184,6 +184,14 @@ export default function CourierPage() {
     await signOut(auth);
     router.push("/courier-login");
   };
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-black text-white flex items-center justify-center">
+        <p className="text-xl">Yükleniyor...</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-black text-white px-4 py-5">
