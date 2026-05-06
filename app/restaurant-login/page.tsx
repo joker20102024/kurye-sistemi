@@ -9,6 +9,7 @@ import {
   signInWithPopup,
   setPersistence,
   browserLocalPersistence,
+  signOut,
 } from "firebase/auth";
 
 import { doc, getDoc } from "firebase/firestore";
@@ -20,64 +21,49 @@ export default function RestaurantLoginPage() {
     try {
       const auth = getAuth(app);
 
-      await setPersistence(
-        auth,
-        browserLocalPersistence
-      );
+      await setPersistence(auth, browserLocalPersistence);
 
-      const provider =
-        new GoogleAuthProvider();
+      const provider = new GoogleAuthProvider();
 
-      const result =
-        await signInWithPopup(
-          auth,
-          provider
-        );
+      const result = await signInWithPopup(auth, provider);
 
       const user = result.user;
 
-      const userSnap = await getDoc(
-        doc(db, "users", user.uid)
-      );
+      const userSnap = await getDoc(doc(db, "users", user.uid));
 
       if (!userSnap.exists()) {
-        alert(
-          "Kayıt bulunamadı. Önce restoran kaydı yapın."
-        );
+        await signOut(auth);
+        alert("Kayıt bulunamadı. Önce restoran kaydı yapın.");
         return;
       }
 
       const data = userSnap.data();
 
-      if (data.role !== "restaurant") {
-        alert(
-          "Bu hesap restoran hesabı değil."
-        );
+      const role = String(data.role || "").trim().toLowerCase();
+      const status = String(data.status || "").trim().toLowerCase();
+
+      if (role !== "restaurant") {
+        await signOut(auth);
+        alert("Bu hesap restoran hesabı değil.");
         return;
       }
 
-      if (data.status !== "approved") {
-        alert(
-          "Hesabınız admin onayı bekliyor."
-        );
+      if (status !== "approved") {
+        await signOut(auth);
+        alert("Hesabınız admin onayı bekliyor.");
         return;
       }
 
-      router.push("/restaurant");
+      router.replace("/restaurant");
     } catch (error) {
       console.error(error);
-
-      alert(
-        "Giriş sırasında hata oluştu."
-      );
+      alert("Giriş sırasında hata oluştu.");
     }
   };
 
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4">
-      <h1 className="text-3xl mb-4">
-        🍔 Restoran Girişi
-      </h1>
+      <h1 className="text-3xl mb-4">🍔 Restoran Girişi</h1>
 
       <button
         onClick={googleGiris}

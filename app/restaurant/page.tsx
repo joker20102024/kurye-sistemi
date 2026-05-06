@@ -13,6 +13,7 @@ import {
   addDoc,
   doc,
   getDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
@@ -30,90 +31,81 @@ export default function RestaurantPage() {
   const [musteri, setMusteri] = useState("");
   const [adres, setAdres] = useState("");
   const [user, setUser] = useState<User | null>(null);
-  const [restaurant, setRestaurant] =
-    useState<RestaurantData | null>(null);
+  const [restaurant, setRestaurant] = useState<RestaurantData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const auth = getAuth(app);
 
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      async (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      try {
         if (!currentUser) {
-          router.push("/restaurant-login");
+          setLoading(false);
+          router.replace("/restaurant-login");
           return;
         }
 
-        setUser(currentUser);
-
-        const userSnap = await getDoc(
-          doc(db, "users", currentUser.uid)
-        );
+        const userSnap = await getDoc(doc(db, "users", currentUser.uid));
 
         if (!userSnap.exists()) {
-          alert("Restoran kaydı bulunamadı.");
-          router.push("/restaurant-login");
+          await signOut(auth);
+          setLoading(false);
+          router.replace("/restaurant-login");
           return;
         }
 
-        const data =
-          userSnap.data() as RestaurantData;
+        const data = userSnap.data() as RestaurantData;
 
-        const role = String(data.role || "")
-          .trim()
-          .toLowerCase();
-
-        const status = String(data.status || "")
-          .trim()
-          .toLowerCase();
+        const role = String(data.role || "").trim().toLowerCase();
+        const status = String(data.status || "").trim().toLowerCase();
 
         if (role !== "restaurant") {
-          alert("Bu hesap restoran hesabı değil.");
-          router.push("/");
+          await signOut(auth);
+          setLoading(false);
+          router.replace("/");
           return;
         }
 
         if (status !== "approved") {
-          alert(
-            "Restoran hesabınız admin onayı bekliyor."
-          );
-          router.push("/restaurant-login");
+          await signOut(auth);
+          setLoading(false);
+          router.replace("/restaurant-login");
           return;
         }
 
+        setUser(currentUser);
         setRestaurant(data);
         setLoading(false);
+      } catch (error) {
+        console.error(error);
+        setLoading(false);
+        router.replace("/restaurant-login");
       }
-    );
+    });
 
     return () => unsubscribe();
   }, [router]);
 
   const siparisOlustur = async () => {
-    if (!musteri || !adres) {
+    if (!musteri.trim() || !adres.trim()) {
       alert("Boş bırakma!");
       return;
     }
 
     if (!user || !restaurant) {
-      alert(
-        "Restoran bilgisi yüklenmedi. Sayfayı yenileyip tekrar dene."
-      );
+      alert("Restoran bilgisi yüklenmedi. Sayfayı yenileyip tekrar dene.");
       return;
     }
 
     await addDoc(collection(db, "siparisler"), {
-      musteri,
-      adres,
+      musteri: musteri.trim(),
+      adres: adres.trim(),
       kurye: "",
       kuryeId: "",
       durum: "Hazırlanıyor",
-      restoranAdi:
-        restaurant.restoranAdi ||
-        "Bilinmeyen restoran",
+      restoranAdi: restaurant.restoranAdi || "Bilinmeyen restoran",
       restoranId: user.uid,
-      createdAt: new Date(),
+      createdAt: serverTimestamp(),
     });
 
     alert("Sipariş kaydedildi!");
@@ -124,18 +116,14 @@ export default function RestaurantPage() {
 
   const cikisYap = async () => {
     const auth = getAuth(app);
-
     await signOut(auth);
-
-    router.push("/restaurant-login");
+    router.replace("/restaurant-login");
   };
 
   if (loading) {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-xl">
-          Yükleniyor...
-        </p>
+        <p className="text-xl">Yükleniyor...</p>
       </main>
     );
   }
@@ -144,13 +132,9 @@ export default function RestaurantPage() {
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4 p-6">
       <div className="w-full max-w-sm flex justify-between items-center mb-4">
         <div>
-          <h1 className="text-3xl">
-            🍔 Restoran Paneli
-          </h1>
-
+          <h1 className="text-3xl">🍔 Restoran Paneli</h1>
           <p className="text-zinc-400 mt-1">
-            {restaurant?.restoranAdi ||
-              "Restoran"}
+            {restaurant?.restoranAdi || "Restoran"}
           </p>
         </div>
 
@@ -166,9 +150,7 @@ export default function RestaurantPage() {
         type="text"
         placeholder="Müşteri adı"
         value={musteri}
-        onChange={(e) =>
-          setMusteri(e.target.value)
-        }
+        onChange={(e) => setMusteri(e.target.value)}
         className="w-80 max-w-full p-3 rounded bg-white text-black placeholder:text-gray-500"
       />
 
@@ -176,9 +158,7 @@ export default function RestaurantPage() {
         type="text"
         placeholder="Adres"
         value={adres}
-        onChange={(e) =>
-          setAdres(e.target.value)
-        }
+        onChange={(e) => setAdres(e.target.value)}
         className="w-80 max-w-full p-3 rounded bg-white text-black placeholder:text-gray-500"
       />
 
