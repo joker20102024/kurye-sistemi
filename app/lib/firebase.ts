@@ -1,4 +1,15 @@
-import { initializeApp } from "firebase/app";
+import {
+  initializeApp,
+  getApps,
+  getApp,
+} from "firebase/app";
+
+import {
+  getAuth,
+  setPersistence,
+  browserLocalPersistence,
+} from "firebase/auth";
+
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -10,5 +21,23 @@ const firebaseConfig = {
   appId: "1:401001062514:web:2df9d72ebdc5b32ef8a2eb",
 };
 
-export const app = initializeApp(firebaseConfig);
+export const app =
+  getApps().length > 0
+    ? getApp()
+    : initializeApp(firebaseConfig);
+
+export const auth = getAuth(app);
+
+if (typeof window !== "undefined") {
+  setPersistence(
+    auth,
+    browserLocalPersistence
+  ).catch((error) => {
+    console.log(
+      "Persistence hatası:",
+      error
+    );
+  });
+}
+
 export const db = getFirestore(app);
